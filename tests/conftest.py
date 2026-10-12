@@ -19,8 +19,6 @@ from driftline.market_data.fixtures import (
 )
 from driftline.persistence.models import Base
 
-TEST_DB_URL = "sqlite:///./test_driftline.db"
-
 
 @pytest.fixture()
 def candles_trend() -> list:  # type: ignore[type-arg]
@@ -33,10 +31,13 @@ def candles_wave() -> list:  # type: ignore[type-arg]
 
 
 @pytest.fixture()
-def db_session() -> Generator[Session, None, None]:
-    if os.path.exists("test_driftline.db"):
-        os.remove("test_driftline.db")
-    engine = create_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
+def db_session(tmp_path: object) -> Generator[Session, None, None]:
+    from pathlib import Path
+
+    db_file = Path(str(tmp_path)) / "test_driftline.db"
+    engine = create_engine(
+        f"sqlite:///{db_file.as_posix()}", connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     session = factory()
@@ -45,8 +46,6 @@ def db_session() -> Generator[Session, None, None]:
     finally:
         session.close()
         engine.dispose()
-        if os.path.exists("test_driftline.db"):
-            os.remove("test_driftline.db")
 
 
 @pytest.fixture()

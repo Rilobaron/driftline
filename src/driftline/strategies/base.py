@@ -11,7 +11,11 @@ class Strategy(Protocol):
     """Deterministic strategy contract: completed candles in, signals out."""
 
     name: str
-    warmup_bars: int
+
+    @property
+    def warmup_bars(self) -> int:
+        """Minimum completed bars required before signals are actionable."""
+        ...
 
     def generate(self, candles: list[Candle]) -> list[Signal]:
         """Generate signals using only data available at each candle.

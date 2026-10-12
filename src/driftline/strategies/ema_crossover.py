@@ -8,10 +8,12 @@ backtest engine's responsibility, keeping signal generation free of lookahead.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from driftline.domain.models import Candle, Signal, SignalType
 from driftline.indicators.basic import atr as atr_fn
 from driftline.indicators.basic import ema as ema_fn
+from driftline.strategies.specs import ParameterSpec
 
 
 @dataclass(frozen=True)
@@ -30,10 +32,59 @@ class EmaCrossoverParams:
 class EmaCrossoverStrategy:
     """Baseline EMA-crossover strategy for platform validation."""
 
+    strategy_id = "ema_crossover"
     name = "ema_crossover"
+    display_name = "EMA Crossover"
+    description = (
+        "Baseline long-only EMA crossover (fast crosses slow). "
+        "Validation baseline, not a profitability claim."
+    )
+    version = "1.0.0"
+    required_indicators = ("ema", "atr")
 
     def __init__(self, params: EmaCrossoverParams | None = None) -> None:
         self.params = params or EmaCrossoverParams()
+
+    @classmethod
+    def parameter_schema(cls) -> list[ParameterSpec]:
+        return [
+            ParameterSpec(
+                name="fast_period",
+                kind="int",
+                default=20,
+                min_value=2,
+                max_value=500,
+                description="Fast EMA period",
+            ),
+            ParameterSpec(
+                name="slow_period",
+                kind="int",
+                default=50,
+                min_value=3,
+                max_value=500,
+                description="Slow EMA period",
+            ),
+            ParameterSpec(
+                name="atr_period",
+                kind="int",
+                default=14,
+                min_value=2,
+                max_value=200,
+                description="ATR context period",
+            ),
+        ]
+
+    @classmethod
+    def default_params(cls) -> dict[str, Any]:
+        return {"fast_period": 20, "slow_period": 50, "atr_period": 14}
+
+    @classmethod
+    def build_params(cls, params: dict[str, Any]) -> EmaCrossoverParams:
+        return EmaCrossoverParams(
+            fast_period=int(params.get("fast_period", 20)),
+            slow_period=int(params.get("slow_period", 50)),
+            atr_period=int(params.get("atr_period", 14)),
+        )
 
     @property
     def warmup_bars(self) -> int:

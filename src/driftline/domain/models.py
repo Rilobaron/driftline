@@ -104,12 +104,14 @@ class BacktestMetrics(BaseModel):
     initial_capital: float
     final_equity: float
     total_return_pct: float
+    annualized_return_pct: float | None = None
     buy_and_hold_return_pct: float
     max_drawdown_pct: float
     num_trades: int
     win_rate_pct: float | None = None
     profit_factor: float | None = None
     sharpe_ratio: float | None = None
+    sortino_ratio: float | None = None
     expectancy: float | None = None
     total_fees: float
     exposure_pct: float = 0.0

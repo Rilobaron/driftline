@@ -48,10 +48,20 @@ def compute_metrics(
     elif gross_loss > 1e-12:
         profit_factor = gross_profit / gross_loss
     else:
-        profit_factor = None if not wins else float("inf")
+        # Zero-loss history: report None rather than a misleading infinity.
+        # A finite sample without losers carries no measurable loss scale.
+        profit_factor = None
     expectancy = (sum(t.realized_pnl for t in trades) / len(trades)) if trades else None
 
+    closes_for_span = [p.timestamp for p in equity_curve]
+    annualized: float | None = None
+    if len(closes_for_span) >= 2 and initial_capital > 0 and final_equity > 0:
+        span_days = (closes_for_span[-1] - closes_for_span[0]).total_seconds() / 86400.0
+        if span_days >= 30.0:
+            annualized = ((final_equity / initial_capital) ** (365.25 / span_days) - 1.0) * 100.0
+
     sharpe: float | None = None
+    sortino: float | None = None
     if len(equities) >= 3:
         rets: list[float] = []
         for prev, cur in zip(equities[:-1], equities[1:], strict=False):
@@ -61,10 +71,14 @@ def compute_metrics(
             mean = sum(rets) / len(rets)
             var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
             std = math.sqrt(var)
+            # Annualize assuming hourly bars; documented assumption.
+            periods_per_year = 8760.0 if timeframe.endswith("h") else 252.0
             if std > 1e-12:
-                # Annualize assuming hourly bars; documented assumption.
-                periods_per_year = 8760.0 if timeframe.endswith("h") else 252.0
                 sharpe = (mean / std) * math.sqrt(periods_per_year)
+            downside = [min(0.0, r) for r in rets]
+            dd_var = sum(d * d for d in downside) / len(downside)
+            if dd_var > 1e-24:
+                sortino = (mean / math.sqrt(dd_var)) * math.sqrt(periods_per_year)
 
     exposure = (bars_in_market / total_bars * 100.0) if total_bars else 0.0
     assumptions = [
@@ -83,16 +97,24 @@ def compute_metrics(
         )
     if sharpe is not None and timeframe.endswith("h"):
         assumptions.append("Sharpe annualized with 8760 hourly periods/year.")
+    if sortino is not None:
+        assumptions.append(
+            "Sortino uses downside deviation of sub-zero bar returns, same annualization."
+        )
+    if annualized is not None:
+        assumptions.append("Annualized return compounds the window return over 365.25 days.")
     return BacktestMetrics(
         initial_capital=initial_capital,
         final_equity=final_equity,
         total_return_pct=total_return_pct,
+        annualized_return_pct=annualized,
         buy_and_hold_return_pct=bh,
         max_drawdown_pct=drawdown_pct,
         num_trades=len(trades),
         win_rate_pct=win_rate,
         profit_factor=profit_factor,
         sharpe_ratio=sharpe,
+        sortino_ratio=sortino,
         expectancy=expectancy,
         total_fees=total_fees,
         exposure_pct=exposure,
