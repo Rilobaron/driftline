@@ -7,6 +7,8 @@ from functools import lru_cache
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_MARKET_STREAMS = "binance:BTC/USDT:1h,binance:ETH/USDT:1h,binance:SOL/USDT:1h"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="DRIFTLINE_", extra="ignore")
@@ -28,6 +30,17 @@ class Settings(BaseSettings):
 
     api_host: str = Field(default="0.0.0.0", alias="DRIFTLINE_API_HOST")
     api_port: int = Field(default=8000, alias="DRIFTLINE_API_PORT")
+
+    # --- v0.2b market automation ---
+    market_streams: str = Field(default=DEFAULT_MARKET_STREAMS, alias="DRIFTLINE_MARKET_STREAMS")
+    sync_delay_seconds: int = Field(default=90, alias="DRIFTLINE_SYNC_DELAY_SECONDS")
+    bootstrap_lookback_months: int = Field(default=12, alias="DRIFTLINE_BOOTSTRAP_MONTHS")
+    scheduler_enabled: bool = Field(default=False, alias="DRIFTLINE_SCHEDULER_ENABLED")
+    scheduler_interval_seconds: int = Field(default=60, alias="DRIFTLINE_SCHEDULER_INTERVAL")
+    stale_after_seconds: int = Field(default=8100, alias="DRIFTLINE_STALE_AFTER_SECONDS")
+    fetch_timeout_seconds: float = Field(default=30.0, alias="DRIFTLINE_FETCH_TIMEOUT")
+    fetch_max_retries: int = Field(default=5, alias="DRIFTLINE_FETCH_MAX_RETRIES")
+    ops_token: str = Field(default="", alias="DRIFTLINE_OPS_TOKEN")
 
 
 @lru_cache(maxsize=1)
