@@ -112,6 +112,13 @@ def evaluate_window(
             f"{timeframe} candles — fills bridge gaps at next available open; "
             "treat metrics with caution."
         )
+    if result.equity_curve and result.equity_curve[-1].position_qty > 1e-12:
+        warnings.append(
+            f"window [{eval_start}, {eval_end}): position open at evaluation end — "
+            "final equity is marked to last close (unrealized), not a realized exit; "
+            "trade-based statistics (win rate, profit factor, expectancy) cover "
+            "completed trades only."
+        )
     if s0 > 0 and (eval_start - s0) < strategy.warmup_bars:
         warnings.append(
             "warmup prefix shorter than strategy minimum "

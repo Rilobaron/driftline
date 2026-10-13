@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from driftline.domain.models import Candle
@@ -38,8 +39,42 @@ def upsert_candles(
     *,
     exchange: str = "binance",
 ) -> int:
-    """Insert-or-ignore candles (idempotent incremental sync). Returns new rows."""
-    existing_ts = {
+    """Insert-or-ignore candles (idempotent incremental sync). Returns new rows.
+
+    Uses a single ``INSERT ... ON CONFLICT DO NOTHING`` statement so concurrent
+    workers syncing overlapping ranges cannot collide on the candle identity
+    constraint (a prior check-then-insert implementation raced and raised
+    UniqueViolation under concurrency).
+    """
+    # In-batch dedup: the same timestamp twice in one call must not self-collide.
+    seen: set[datetime] = set()
+    uniq: list[Candle] = []
+    for candle in candles:
+        key = _ts_key(candle.ts)
+        if key not in seen:
+            seen.add(key)
+            uniq.append(candle)
+    if not uniq:
+        return 0
+    payload = [
+        {
+            "exchange": exchange,
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "ts": candle.ts,
+            "open": candle.open,
+            "high": candle.high,
+            "low": candle.low,
+            "close": candle.close,
+            "volume": candle.volume,
+        }
+        for candle in uniq
+    ]
+    dialect = session.bind.dialect.name if session.bind is not None else "sqlite"
+    # Advisory pre-check (exact when uncontended): rows already present.
+    # NOTE: psycopg3 reports rowcount -1 for INSERT ... ON CONFLICT DO NOTHING,
+    # so the pre-check — not rowcount — is the source of the "new rows" count.
+    existing = {
         _ts_key(t)
         for t in session.scalars(
             select(CandleRow.ts).where(
@@ -49,24 +84,26 @@ def upsert_candles(
             )
         ).all()
     }
-    fresh = [c for c in candles if _ts_key(c.ts) not in existing_ts]
-    for c in fresh:
-        existing_ts.add(_ts_key(c.ts))
-        session.add(
-            CandleRow(
-                exchange=exchange,
-                symbol=symbol,
-                timeframe=timeframe,
-                ts=c.ts,
-                open=c.open,
-                high=c.high,
-                low=c.low,
-                close=c.close,
-                volume=c.volume,
-            )
+    fresh_count = sum(1 for candle in uniq if _ts_key(candle.ts) not in existing)
+    session.flush()  # connection-level DML joins the session transaction as-is
+    conn = session.connection()
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        conn.execute(
+            pg_insert(CandleRow)
+            .values(payload)
+            .on_conflict_do_nothing(index_elements=["exchange", "symbol", "timeframe", "ts"])
         )
+    else:
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+        conn.execute(sqlite_insert(CandleRow).values(payload).on_conflict_do_nothing())
     session.commit()
-    return len(fresh)
+    # fresh_count is exact for sequential callers; under a concurrent race two
+    # workers may both count the same missing row (best effort by nature) while
+    # ON CONFLICT still guarantees no duplicates and no errors.
+    return fresh_count
 
 
 def load_candles(
@@ -175,7 +212,19 @@ def get_or_create_stream(
             unresolved_gaps=[],
         )
         session.add(row)
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError:
+            # Lost the creation race with another worker: reuse their row.
+            session.rollback()
+            row = session.scalars(
+                select(MarketStreamRow).where(
+                    MarketStreamRow.exchange == exchange,
+                    MarketStreamRow.symbol == symbol,
+                    MarketStreamRow.timeframe == timeframe,
+                )
+            ).one()
+            return row
         session.refresh(row)
     return row
 
@@ -210,25 +259,47 @@ def acquire_stream_lock(
 ) -> bool:
     """DB-backed lease so two workers never sync the same stream concurrently.
 
-    Returns True when this owner holds the lock. Expired leases are stolen.
+    Implemented as a single atomic conditional UPDATE (compare-and-swap), so
+    concurrent acquirers serialize in the database instead of racing on a
+    read-modify-write cycle. Returns True when this owner holds the lock.
+    Expired leases are stolen; our own lease is renewed.
     """
     ref = now or datetime.now(UTC)
     if ref.tzinfo is None:
         ref = ref.replace(tzinfo=UTC)
-    locked_until = row.locked_until
-    if locked_until is not None:
-        if locked_until.tzinfo is None:
-            locked_until = locked_until.replace(tzinfo=UTC)
-        if locked_until >= ref and row.locked_by not in (None, owner):
-            return False
-    row.locked_by = owner
-    # Lease arithmetic in UTC; SQLite stores naive — compare defensively.
-    row.locked_until = ref.replace(tzinfo=None) if _is_sqlite(session) else ref
+    new_until = ref + timedelta(seconds=max(0, lease_seconds))
+    sqlite = _is_sqlite(session)
+    # SQLite stores naive timestamps — compare in stored format on both backends.
+    ref_store = ref.replace(tzinfo=None) if sqlite else ref
+    new_until_store = new_until.replace(tzinfo=None) if sqlite else new_until
+    session.flush()
+    cursor_result = session.connection().execute(
+        update(MarketStreamRow)
+        .where(MarketStreamRow.id == row.id)
+        .where(
+            or_(
+                MarketStreamRow.locked_until.is_(None),
+                MarketStreamRow.locked_until < ref_store,
+                MarketStreamRow.locked_by.is_(None),
+                MarketStreamRow.locked_by == owner,
+            )
+        )
+        .values(locked_by=owner, locked_until=new_until_store)
+    )
     session.commit()
-    return True
+    acquired: bool = cursor_result.rowcount == 1
+    if acquired:
+        row.locked_by = owner
+        row.locked_until = new_until_store
+    else:
+        session.refresh(row)
+    return acquired
 
 
 def release_stream_lock(session: Session, row: MarketStreamRow, *, owner: str) -> None:
+    # Re-read first: releasing from a stale object could clear a lease that
+    # another worker legitimately stole after ours expired.
+    session.refresh(row)
     if row.locked_by == owner:
         row.locked_by = None
         row.locked_until = None

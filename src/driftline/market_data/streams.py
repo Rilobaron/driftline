@@ -56,7 +56,9 @@ def validate_symbol(symbol: str) -> str:
 def validate_timeframe(timeframe: str) -> str:
     cleaned = timeframe.strip()
     timeframe_to_seconds(cleaned)  # raises ValidationError on unsupported values
-    return cleaned
+    # Canonical lowercase ("1H" -> "1h"): units are case-insensitive, but CCXT
+    # and stored candle identity use lowercase.
+    return cleaned.lower()
 
 
 def validate_exchange(exchange: str) -> str:

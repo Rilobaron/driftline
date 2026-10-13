@@ -154,6 +154,17 @@ def run_walk_forward(
         registry.validate_params(strategy_id, combo)
     probe = registry.create(strategy_id, None)
     version = str(getattr(probe, "version", "1.0.0"))
+    # Warmup feasibility: the first test window starts at train_window, so every
+    # fold needs train_window >= each candidate's warmup. Fail fast instead of
+    # raising mid-run from inside a test-window evaluation.
+    max_warmup = 0
+    for combo in combos:
+        max_warmup = max(max_warmup, registry.create(strategy_id, combo).warmup_bars)
+    if wf_config.train_window < max_warmup:
+        raise ValueError(
+            f"train_window ({wf_config.train_window}) is smaller than the largest "
+            f"candidate warmup ({max_warmup}); increase train_window or shrink the grid"
+        )
 
     report = WalkForwardReport(
         generated_at=datetime.now(UTC),
@@ -191,6 +202,8 @@ def run_walk_forward(
         best_params: dict[str, Any] | None = None
         best_value = float("-inf")
         best_trades = 0
+        first_qualifying: dict[str, Any] | None = None
+        first_qualifying_trades = 0
         for combo in combos:
             candidate = registry.create(strategy_id, combo)
             train_eval = evaluate_window(
@@ -206,11 +219,24 @@ def run_walk_forward(
             )
             if train_eval.metrics.num_trades < wf_config.min_trades:
                 continue
+            if first_qualifying is None:
+                first_qualifying = registry.validate_params(strategy_id, combo)
+                first_qualifying_trades = train_eval.metrics.num_trades
             value = _objective_value(train_eval.metrics, wf_config.objective)
             if value > best_value:  # strict: first candidate wins ties
                 best_value = value
                 best_params = registry.validate_params(strategy_id, combo)
                 best_trades = train_eval.metrics.num_trades
+        if best_params is None and first_qualifying is not None:
+            # Every qualifying candidate scored undefined (-inf) on the objective
+            # (e.g. Sharpe with no return variance): freeze the first candidate
+            # explicitly rather than skipping with a misleading min_trades message.
+            best_params = first_qualifying
+            best_trades = first_qualifying_trades
+            fold.warnings.append(
+                f"fold {fold_idx}: objective {wf_config.objective!r} undefined for all "
+                "qualifying candidates — froze first grid candidate (no selection signal)."
+            )
         if best_params is None:
             fold.status = "skipped"
             fold.warnings.append(

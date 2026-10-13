@@ -97,3 +97,20 @@ def test_stop_loss_risk_limit() -> None:
         peak_equity=10_000.0,
     )
     assert not d and any("per-trade" in r for r in d.reasons)
+
+
+def test_nan_caller_state_rejected() -> None:
+    rm = RiskManager()
+    nan = float("nan")
+    d = rm.check(_intent(), cash=nan, position_qty=0.0, equity=10_000.0, peak_equity=10_000.0)
+    assert not d and any("cash" in r for r in d.reasons)
+    d2 = rm.check(_intent(), cash=1000.0, position_qty=0.0, equity=nan, peak_equity=1000.0)
+    assert not d2 and any("equity" in r for r in d2.reasons)
+    d3 = rm.check(
+        _intent(side="sell", quantity=0.5, price=100.0),
+        cash=100.0,
+        position_qty=nan,
+        equity=800.0,
+        peak_equity=1000.0,
+    )
+    assert not d3 and any("position" in r for r in d3.reasons)

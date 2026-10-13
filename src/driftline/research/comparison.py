@@ -72,19 +72,16 @@ SORTABLE_METRICS = (
 def sort_entries(
     entries: list[ComparisonEntry], *, metric: str, descending: bool = True
 ) -> list[ComparisonEntry]:
-    """Sort comparison entries by one metric (None values sort last)."""
+    """Sort comparison entries by one metric (None values always sort last)."""
     if metric not in SORTABLE_METRICS:
         raise ValueError(f"unsortable metric: {metric!r} (choose from {SORTABLE_METRICS})")
-
-    def key(entry: ComparisonEntry) -> tuple[int, float]:
+    valued: list[ComparisonEntry] = []
+    missing: list[ComparisonEntry] = []
+    for entry in entries:
         value = getattr(entry.metrics, metric)
-        if metric == "num_trades":
-            return (0, float(value))
-        if value is None:
-            return (1, 0.0)
-        return (0, float(value))
-
-    return sorted(entries, key=key, reverse=descending)
+        (missing if value is None else valued).append(entry)
+    valued.sort(key=lambda e: float(getattr(e.metrics, metric)), reverse=descending)
+    return valued + missing
 
 
 def compare_strategies(

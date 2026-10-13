@@ -89,6 +89,12 @@ class CcxtMarketDataProvider:
         limit: int = 1000,
     ) -> list[Candle]:
         self.validate_market(symbol, timeframe)
+        # Normalize identity once: "btc/usdt"+"1H" must hit the same exchange
+        # market and DB rows as the canonical "BTC/USDT"+"1h".
+        from driftline.market_data.streams import validate_symbol, validate_timeframe
+
+        symbol = validate_symbol(symbol)
+        timeframe = validate_timeframe(timeframe)
         try:
             raw = self._exchange.fetch_ohlcv(symbol, timeframe, since=since_ms, limit=limit)
         except Exception as exc:  # ccxt raises rich typed errors; map to domain errors
@@ -115,6 +121,10 @@ class CcxtMarketDataProvider:
     ) -> list[Candle]:
         """Paginate backwards-safe ascending history up to ``total_limit`` candles."""
         self.validate_market(symbol, timeframe)
+        from driftline.market_data.streams import validate_symbol, validate_timeframe
+
+        symbol = validate_symbol(symbol)
+        timeframe = validate_timeframe(timeframe)
         retry = RetryConfig(max_retries=max(0, max_retries))
         interval_ms = timeframe_to_seconds(timeframe) * 1000
         collected: list[Candle] = []
