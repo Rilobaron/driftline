@@ -146,6 +146,7 @@ def sync_stream(
         invalid: int,
         missing: list[datetime],
         error: str | None,
+        provider_exhausted: bool = False,
     ) -> SyncReport:
         finished = _utcnow()
         duration_ms = max(0, int((finished - started).total_seconds() * 1000))
@@ -159,11 +160,14 @@ def sync_stream(
             stream.last_success_at = finished
             stream.last_error = None
             stream.consecutive_failures = 0
-            # A clean full pass (zero remaining gaps) completes the initial
-            # load: history is current through the last completed candle.
-            # Depth shortfalls stay visible via total_stored and research
-            # coverage checks; provider exhaustion is not a gap.
-            stream.bootstrap_done = True
+            # Bootstrap completes only on evidence: we hold the target depth, or
+            # the provider is exhausted (returned fewer than requested) with no
+            # remaining gaps. A bounded partial pass must NOT flip the flag —
+            # otherwise the scheduler would switch to incremental mode and the
+            # older range would never be backfilled.
+            target = stream.bootstrap_target or 0
+            if total >= target or provider_exhausted:
+                stream.bootstrap_done = True
         else:
             stream.last_error = (error or "sync incomplete")[:512]
             stream.consecutive_failures = (stream.consecutive_failures or 0) + 1
@@ -352,6 +356,7 @@ def sync_stream(
         invalid=0,
         missing=[],
         error=None,
+        provider_exhausted=len(fetched_raw) < bounded,
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac as _hmac
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -63,6 +64,11 @@ def _resolve_candles(
     fixture_kind: str = "oscillating",
     exchange: str = "binance",
 ) -> tuple[list[Any], str]:
+    # Normalize market identity ("btc/usdt"+"1H" hits the same rows as the
+    # canonical "BTC/USDT"+"1h"); never split one market into two datasets.
+    symbol = symbol.strip().upper()
+    timeframe = timeframe.strip().lower()
+    exchange = exchange.strip().lower()
     stored = load_candles(session, symbol, timeframe, limit=limit, exchange=exchange)
     if stored:
         return stored, f"exchange:{exchange}"
@@ -91,7 +97,7 @@ def _ops_token_ok(provided: str | None) -> bool:
     token = provided.strip()
     if token.lower().startswith("bearer "):
         token = token[7:].strip()
-    return token == expected
+    return _hmac.compare_digest(token, expected)
 
 
 def _require_ops_token(request: Any) -> None:
@@ -810,10 +816,15 @@ def create_app() -> FastAPI:
     ) -> dict[str, Any]:
         _require_ops_token(request)
         from driftline.market_data.ccxt_provider import CcxtMarketDataProvider
-        from driftline.market_data.streams import validate_symbol, validate_timeframe
+        from driftline.market_data.streams import (
+            validate_exchange,
+            validate_symbol,
+            validate_timeframe,
+        )
         from driftline.persistence import repository as _repo
 
         try:
+            exchange = validate_exchange(body.exchange)
             symbol = validate_symbol(body.symbol)
             timeframe = validate_timeframe(body.timeframe)
         except Exception as exc:
@@ -821,23 +832,24 @@ def create_app() -> FastAPI:
         if body.kind not in ("incremental", "bootstrap"):
             raise HTTPException(status_code=422, detail=f"unknown sync kind {body.kind!r}")
         stream = _repo.get_or_create_stream(
-            session, exchange=body.exchange, symbol=symbol, timeframe=timeframe
+            session, exchange=exchange, symbol=symbol, timeframe=timeframe
         )
-        if not _repo.acquire_stream_lock(
-            session, stream, owner="api-manual", now=datetime.now(UTC)
-        ):
+        # Unique owner per request: concurrent manual syncs must conflict (409),
+        # not silently share a static owner (which would renew instead of deny).
+        owner = f"api-manual:{uuid.uuid4().hex[:8]}"
+        if not _repo.acquire_stream_lock(session, stream, owner=owner, now=datetime.now(UTC)):
             raise HTTPException(status_code=409, detail="sync already running for this stream")
         try:
             from driftline.market_data.sync import sync_stream
 
             provider = CcxtMarketDataProvider(
-                body.exchange,
+                exchange,
                 timeout_seconds=settings.fetch_timeout_seconds,
                 max_retries=settings.fetch_max_retries,
             )
             report = sync_stream(
                 session,
-                exchange=body.exchange,
+                exchange=exchange,
                 symbol=symbol,
                 timeframe=timeframe,
                 provider=provider,
@@ -849,7 +861,7 @@ def create_app() -> FastAPI:
         finally:
             fresh = _repo.get_stream(session, stream.id)
             if fresh is not None:
-                _repo.release_stream_lock(session, fresh, owner="api-manual")
+                _repo.release_stream_lock(session, fresh, owner=owner)
         return _report_out(report)
 
     @app.post("/api/v1/market/repair", response_model=schemas.SyncReportOut, tags=["market"])
@@ -858,32 +870,36 @@ def create_app() -> FastAPI:
     ) -> dict[str, Any]:
         _require_ops_token(request)
         from driftline.market_data.ccxt_provider import CcxtMarketDataProvider
-        from driftline.market_data.streams import validate_symbol, validate_timeframe
+        from driftline.market_data.streams import (
+            validate_exchange,
+            validate_symbol,
+            validate_timeframe,
+        )
         from driftline.persistence import repository as _repo
 
         try:
+            exchange = validate_exchange(body.exchange)
             symbol = validate_symbol(body.symbol)
             timeframe = validate_timeframe(body.timeframe)
         except Exception as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         stream = _repo.get_or_create_stream(
-            session, exchange=body.exchange, symbol=symbol, timeframe=timeframe
+            session, exchange=exchange, symbol=symbol, timeframe=timeframe
         )
-        if not _repo.acquire_stream_lock(
-            session, stream, owner="api-manual", now=datetime.now(UTC)
-        ):
+        owner = f"api-manual:{uuid.uuid4().hex[:8]}"
+        if not _repo.acquire_stream_lock(session, stream, owner=owner, now=datetime.now(UTC)):
             raise HTTPException(status_code=409, detail="repair already running for this stream")
         try:
             from driftline.market_data.sync import repair_stream_gaps
 
             provider = CcxtMarketDataProvider(
-                body.exchange,
+                exchange,
                 timeout_seconds=settings.fetch_timeout_seconds,
                 max_retries=settings.fetch_max_retries,
             )
             report = repair_stream_gaps(
                 session,
-                exchange=body.exchange,
+                exchange=exchange,
                 symbol=symbol,
                 timeframe=timeframe,
                 provider=provider,
@@ -892,7 +908,7 @@ def create_app() -> FastAPI:
         finally:
             fresh = _repo.get_stream(session, stream.id)
             if fresh is not None:
-                _repo.release_stream_lock(session, fresh, owner="api-manual")
+                _repo.release_stream_lock(session, fresh, owner=owner)
         return _report_out(report)
 
     @app.get(

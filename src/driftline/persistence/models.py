@@ -19,7 +19,7 @@ class CandleRow(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    exchange: Mapped[str] = mapped_column(String(32), default="binance", index=True)
+    exchange: Mapped[str] = mapped_column(String(32), nullable=False, default="binance", index=True)
     symbol: Mapped[str] = mapped_column(String(32), index=True)
     timeframe: Mapped[str] = mapped_column(String(16), index=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -78,7 +78,7 @@ class MarketStreamRow(Base):
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
     bootstrap_done: Mapped[bool] = mapped_column(Boolean, default=False)
     bootstrap_target: Mapped[int] = mapped_column(Integer, default=8760)
-    unresolved_gaps: Mapped[list[object]] = mapped_column(JSON, default=list)
+    unresolved_gaps: Mapped[list[object]] = mapped_column(JSON, nullable=False, default=list)
     locked_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_duration_ms: Mapped[int] = mapped_column(Integer, default=0)
@@ -89,7 +89,7 @@ class SyncRunRow(Base):
     """Append-only history of sync/bootstrap/repair attempts."""
 
     __tablename__ = "sync_runs"
-    __table_args__ = (UniqueConstraint("id", name="uq_sync_run"),)
+    # NOTE: no explicit UNIQUE on id — the primary key already guarantees it.
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     exchange: Mapped[str] = mapped_column(String(32), index=True)

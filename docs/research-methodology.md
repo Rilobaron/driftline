@@ -11,7 +11,10 @@ predictive performance.
 - Long-only spot, single active position; entries while invested are ignored.
 - Equity convention: `cash + qty * candle close`, fees realized on fills.
 - Open positions at the end of an evaluation are **marked to last close**,
-  never fabricated into exits. Reports warn whenever this applies.
+  never fabricated into exits. Windowed evaluations (splits, walk-forward
+  folds) carry an explicit open-position warning, and trade-based statistics
+  (win rate, profit factor, expectancy) cover completed trades only — they
+  exclude marked-unrealized value that total return includes.
 - Default runs apply no pre-trade risk veto (allocation sizing with
   cash-sufficiency scaling); passing `risk_config` enables vetoes evaluated
   on the simulation clock.

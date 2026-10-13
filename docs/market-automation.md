@@ -65,6 +65,11 @@ The API process never starts it (`DRIFTLINE_SCHEDULER_ENABLED=0` there).
 - New streams bootstrap ~12 months of hourly candles (`DRIFTLINE_BOOTSTRAP_MONTHS`),
   bounded per run and paginated (1000/page). Progress is the persisted data
   itself: a restart resumes from the latest stored candle, never from scratch.
+- `bootstrap_done` is set only on evidence: stored depth reaches the stream's
+  `bootstrap_target`, or the provider is exhausted (returned fewer candles
+  than requested) with no remaining gaps. A bounded partial pass never flips
+  the flag, so the scheduler keeps bootstrapping instead of switching to
+  incremental mode prematurely.
 - Steady-state runs fetch only the interval after the latest persisted candle.
   Re-running with nothing new stores zero rows and reports success (`fetched=0`).
 - History older than the earliest candle any provider returned is "unavailable

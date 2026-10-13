@@ -112,6 +112,36 @@ def test_comparison_sort_entries() -> None:
         sort_entries(report.entries, metric="vibes")
 
 
+def test_sort_entries_none_metrics_always_last() -> None:
+    from driftline.domain.models import BacktestMetrics
+    from driftline.research.comparison import ComparisonEntry
+
+    def entry(sharpe: float | None, total: float) -> ComparisonEntry:
+        return ComparisonEntry(
+            strategy_id="s",
+            version="1.0.0",
+            params={},
+            metrics=BacktestMetrics(
+                initial_capital=10000.0,
+                final_equity=10000.0 + total * 100,
+                total_return_pct=total,
+                buy_and_hold_return_pct=0.0,
+                max_drawdown_pct=0.0,
+                num_trades=1,
+                sharpe_ratio=sharpe,
+                total_fees=0.0,
+            ),
+            num_signals=0,
+            num_trades=1,
+        )
+
+    entries = [entry(None, 5.0), entry(2.0, 1.0), entry(1.0, 2.0)]
+    desc = sort_entries(entries, metric="sharpe_ratio", descending=True)
+    assert [e.metrics.total_return_pct for e in desc] == [1.0, 2.0, 5.0]
+    asc = sort_entries(entries, metric="sharpe_ratio", descending=False)
+    assert [e.metrics.total_return_pct for e in asc] == [2.0, 1.0, 5.0]
+
+
 def test_comparison_rejects_unknown_strategy() -> None:
     with pytest.raises(ValueError, match="unknown strategy"):
         compare_strategies(

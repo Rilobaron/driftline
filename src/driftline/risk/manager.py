@@ -72,6 +72,14 @@ class RiskManager:
             reasons.append(f"invalid quantity: {intent.quantity}")
         if not (intent.price > 0):
             reasons.append(f"invalid price: {intent.price}")
+        # Caller-supplied state must be finite and non-negative; NaN compares
+        # False against everything and would otherwise slip through silently.
+        if not (cash >= 0):
+            reasons.append(f"invalid cash: {cash}")
+        if not (equity >= 0):
+            reasons.append(f"invalid equity: {equity}")
+        if not (position_qty >= 0):
+            reasons.append(f"invalid position quantity: {position_qty}")
 
         now = now or datetime.now(UTC)
         ts = intent.timestamp

@@ -24,10 +24,15 @@ def upgrade() -> None:
         # are created via Base.metadata (tests/dev) which already carries the
         # exchange-scoped constraint, so only backfill the column here.
         with op.batch_alter_table("candles") as batch:
-            batch.add_column(sa.Column("exchange", sa.String(32), server_default="binance"))
+            batch.add_column(
+                sa.Column("exchange", sa.String(32), nullable=False, server_default="binance")
+            )
         op.create_index("ix_candles_exchange", "candles", ["exchange"])
     else:
-        op.add_column("candles", sa.Column("exchange", sa.String(32), server_default="binance"))
+        op.add_column(
+            "candles",
+            sa.Column("exchange", sa.String(32), nullable=False, server_default="binance"),
+        )
         op.create_index("ix_candles_exchange", "candles", ["exchange"])
         # Replace the (symbol, timeframe, ts) uniqueness with the
         # exchange-scoped variant so two exchanges never silently merge.
@@ -52,7 +57,7 @@ def upgrade() -> None:
         sa.Column("consecutive_failures", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("bootstrap_done", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("bootstrap_target", sa.Integer(), nullable=False, server_default="8760"),
-        sa.Column("unresolved_gaps", sa.JSON(), nullable=True),
+        sa.Column("unresolved_gaps", sa.JSON(), nullable=False),
         sa.Column("locked_by", sa.String(length=64), nullable=True),
         sa.Column("locked_until", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_duration_ms", sa.Integer(), nullable=False, server_default="0"),
@@ -83,7 +88,6 @@ def upgrade() -> None:
         sa.Column("duration_ms", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("data_source", sa.String(length=128), nullable=False, server_default=""),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("id", name="uq_sync_run"),
     )
     op.create_index("ix_sync_runs_exchange", "sync_runs", ["exchange"])
     op.create_index("ix_sync_runs_symbol", "sync_runs", ["symbol"])

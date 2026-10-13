@@ -20,12 +20,16 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-db_url = os.environ.get("DATABASE_URL")
-if db_url:
-    config.set_main_option("sqlalchemy.url", db_url.replace("+psycopg", "+psycopg2"))
-config.set_main_option(
-    "sqlalchemy.url", config.get_main_option("sqlalchemy.url", "sqlite:///./driftline.db")
-)
+if not config.get_main_option("sqlalchemy.url"):
+    # Precedence: explicit programmatic config first, then DATABASE_URL env,
+    # then the local SQLite default. (An explicitly configured URL must win so
+    # tests and tooling can target isolated databases even when DATABASE_URL
+    # is set in the environment.)
+    db_url = os.environ.get("DATABASE_URL", "sqlite:///./driftline.db")
+    # The app uses SQLAlchemy 2.x with psycopg 3 ("postgresql+psycopg://"),
+    # which engine_from_config supports natively. (Do NOT rewrite to
+    # +psycopg2: psycopg2 is not a project dependency.)
+    config.set_main_option("sqlalchemy.url", db_url)
 
 
 def run_migrations_offline() -> None:
