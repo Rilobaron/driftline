@@ -42,6 +42,18 @@ class Settings(BaseSettings):
     fetch_max_retries: int = Field(default=5, alias="DRIFTLINE_FETCH_MAX_RETRIES")
     ops_token: str = Field(default="", alias="DRIFTLINE_OPS_TOKEN")
 
+    # --- v0.2c paper trading (simulated funds only) ---
+    paper_interval_seconds: int = Field(default=60, alias="DRIFTLINE_PAPER_INTERVAL")
+    paper_max_new_candles: int = Field(default=48, alias="DRIFTLINE_PAPER_MAX_CANDLES")
+    paper_fee_rate: float = Field(default=0.001, alias="DRIFTLINE_PAPER_FEE_RATE")
+    paper_slippage_rate: float = Field(default=0.0005, alias="DRIFTLINE_PAPER_SLIPPAGE_RATE")
+    paper_allocation: float = Field(default=1.0, alias="DRIFTLINE_PAPER_ALLOCATION")
+    paper_min_quantity: float = Field(default=0.00001, alias="DRIFTLINE_PAPER_MIN_QTY")
+    paper_max_daily_loss_pct: float = Field(default=0.05, alias="DRIFTLINE_PAPER_MAX_DAILY_LOSS")
+    paper_max_drawdown: float = Field(default=0.20, alias="DRIFTLINE_PAPER_MAX_DRAWDOWN")
+    paper_min_balance: float = Field(default=10.0, alias="DRIFTLINE_PAPER_MIN_BALANCE")
+    paper_max_stale_seconds: int = Field(default=7200, alias="DRIFTLINE_PAPER_MAX_STALE")
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

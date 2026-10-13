@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hmac as _hmac
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -13,13 +12,14 @@ from sqlalchemy.orm import Session
 
 from driftline import __version__
 from driftline.api import schemas
+from driftline.api.deps import get_db
+from driftline.api.deps import require_ops_token as _require_ops_token
 from driftline.backtesting.engine import BacktestConfig, run_backtest
 from driftline.core.config import get_settings
 from driftline.core.exceptions import DriftlineError
 from driftline.core.logging import configure_logging
 from driftline.indicators import compute_all
 from driftline.market_data.fixtures import make_oscillating_candles, make_trend_candles
-from driftline.persistence import database
 from driftline.persistence.models import BacktestRow, ExperimentRow
 from driftline.persistence.repository import get_backtest as fetch_backtest_row
 from driftline.persistence.repository import (
@@ -50,10 +50,6 @@ settings = get_settings()
 configure_logging(settings.log_level)
 
 
-def get_db() -> Any:
-    yield from database.get_session()
-
-
 def _resolve_candles(
     session: Session,
     *,
@@ -79,31 +75,6 @@ def _resolve_candles(
             candles = make_oscillating_candles(n=min(limit, 2000))
         return candles, "synthetic_fixture"
     return [], "database(empty)"
-
-
-def _ops_token_ok(provided: str | None) -> bool:
-    """Minimal ops protection: shared token when configured, else local-dev open.
-
-    CORS is never treated as authentication. When ``DRIFTLINE_OPS_TOKEN`` is
-    set, privileged endpoints require it via ``X-Driftline-Ops-Token`` (or
-    ``Authorization: Bearer``). When unset, endpoints are open for local
-    development only — deploy behind network controls and set the token.
-    """
-    expected = (settings.ops_token or "").strip()
-    if not expected:
-        return True
-    if not provided:
-        return False
-    token = provided.strip()
-    if token.lower().startswith("bearer "):
-        token = token[7:].strip()
-    return _hmac.compare_digest(token, expected)
-
-
-def _require_ops_token(request: Any) -> None:
-    provided = request.headers.get("x-driftline-ops-token") or request.headers.get("authorization")
-    if not _ops_token_ok(provided):
-        raise HTTPException(status_code=401, detail="missing or invalid ops token")
 
 
 def _stream_out(row: Any) -> dict[str, Any]:
@@ -960,6 +931,10 @@ def create_app() -> FastAPI:
                 for r in rows
             ],
         }
+
+    from driftline.api.paper import router as paper_router
+
+    app.include_router(paper_router)
 
     return app
 

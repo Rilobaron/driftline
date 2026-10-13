@@ -53,5 +53,22 @@ services:
     # Single-worker deployment: never scale past 1 replica — per-stream DB
     # leases guard against accidents, but one owner is the supported model.
 
+  paper:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://driftline:driftline@db:5432/driftline
+      DRIFTLINE_PAPER_INTERVAL: 60
+      DRIFTLINE_PAPER_FEE_RATE: 0.001
+      DRIFTLINE_PAPER_SLIPPAGE_RATE: 0.0005
+      DRIFTLINE_PAPER_ALLOCATION: 1.0
+      DRIFTLINE_OPS_TOKEN: ${DRIFTLINE_OPS_TOKEN:-}
+    command: ["sh", "-c", "alembic upgrade head && python -m driftline.paper.worker"]
+    restart: unless-stopped
+    # Single-executor deployment: never scale past 1 replica — per-session DB
+    # leases guard against accidents, but one paper worker is the supported model.
+
 volumes:
   driftline_pgdata:

@@ -22,6 +22,15 @@ sync, gap detection/repair, data-quality health, a dedicated worker process,
 and operational APIs. See [docs/market-automation.md](docs/market-automation.md)
 and [docs/data-quality.md](docs/data-quality.md).
 
+**Driftline v0.2c** adds a persistent paper-trading engine: automated
+simulated trading on completed candles (default BTC/USDT `1h`, EMA crossover,
+10,000 USDT, long-only spot), mandatory risk controls with a persistent kill
+switch, Decimal-precise portfolio accounting, next-candle-open simulated
+fills, restart-safe sessions with idempotent orders, a dedicated paper worker,
+and operational APIs. Simulated funds only — **no real orders, ever**.
+See [docs/paper-trading.md](docs/paper-trading.md) and
+[docs/execution-model.md](docs/execution-model.md).
+
 > **AI status:** AI assistance (strategy review, market commentary via
 > OpenAI-compatible providers such as FreeLLMAPI) is planned for later phases
 > and is **not implemented in v0.1**. The future AI layer will remain advisory
@@ -51,6 +60,14 @@ and [docs/data-quality.md](docs/data-quality.md).
   accounting, enforced accounting invariants.
 - **Risk layer** — max allocation, per-trade risk (with stop), max drawdown
   gate, minimum balance, stale-data and invalid-order rejection with reasons.
+- **Paper trading (v0.2c)** — persistent simulated sessions
+  (`CREATED/RUNNING/PAUSED/STOPPED/ERROR`), next-candle-open MARKET fills with
+  fees/slippage and recorded assumptions, Decimal portfolio accounting
+  (cash/position/realized/unrealized PnL/equity), mandatory risk policy
+  (daily-loss UTC reset, drawdown, single position, stale-data, persistent
+  kill switch), idempotent orders (`session:signal:side` keys), atomic ticks
+  with rollback/recovery, per-session leased paper worker, and ops-protected
+  `/api/v1/paper/*` endpoints. Simulated funds only.
 - **API** — `GET /health`, market candles/indicators, strategy registry,
   backtest CRUD + trades + equity (OpenAPI at `/docs`).
 - **Strategy Lab (v0.2a)** — strategy registry with parameter schemas;
@@ -99,7 +116,14 @@ uvicorn driftline.api.main:app --reload
 DRIFTLINE_SCHEDULER_ENABLED=1 uv run python -m driftline.worker
 ```
 
-Or everything with Compose: `docker compose up --build` (starts `db`, `api`, `worker`).
+Paper-trading worker (sole executor for paper sessions — run alongside the API):
+
+```bash
+alembic upgrade head
+DRIFTLINE_OPS_TOKEN=secret uv run python -m driftline.paper.worker
+```
+
+Or everything with Compose: `docker compose up --build` (starts `db`, `api`, `worker`, `paper`).
 
 ## Configuration
 
@@ -120,6 +144,16 @@ Or everything with Compose: `docker compose up --build` (starts `db`, `api`, `wo
 | `DRIFTLINE_FETCH_TIMEOUT` | `30.0` | Provider timeout (s) |
 | `DRIFTLINE_FETCH_MAX_RETRIES` | `5` | Bounded provider retries |
 | `DRIFTLINE_OPS_TOKEN` | _(empty)_ | Required token for sync/repair when set |
+| `DRIFTLINE_PAPER_INTERVAL` | `60` | Paper worker poll cadence (s) |
+| `DRIFTLINE_PAPER_MAX_CANDLES` | `48` | Max new candles per paper evaluation |
+| `DRIFTLINE_PAPER_FEE_RATE` | `0.001` | Simulated paper fill fee |
+| `DRIFTLINE_PAPER_SLIPPAGE_RATE` | `0.0005` | Simulated paper fill slippage |
+| `DRIFTLINE_PAPER_ALLOCATION` | `1.0` | Paper position sizing fraction |
+| `DRIFTLINE_PAPER_MIN_QTY` | `0.00001` | Minimum paper order quantity |
+| `DRIFTLINE_PAPER_MAX_DAILY_LOSS` | `0.05` | Paper UTC-day loss limit |
+| `DRIFTLINE_PAPER_MAX_DRAWDOWN` | `0.20` | Paper peak-equity drawdown limit |
+| `DRIFTLINE_PAPER_MIN_BALANCE` | `10.0` | Paper minimum cash balance guard |
+| `DRIFTLINE_PAPER_MAX_STALE` | `7200` | Max paper data age (s) |
 
 ## Running tests
 
@@ -187,6 +221,11 @@ POST /api/v1/backtests
 GET  /api/v1/backtests/{id}
 GET  /api/v1/backtests/{id}/trades
 GET  /api/v1/backtests/{id}/equity
+POST /api/v1/paper/sessions            # ops token when configured
+GET  /api/v1/paper/sessions
+GET  /api/v1/paper/sessions/{id}
+POST /api/v1/paper/sessions/{id}/start|pause|resume|stop|kill|unkill
+GET  /api/v1/paper/sessions/{id}/portfolio|orders|trades|equity|events
 ```
 
 ## Development roadmap
@@ -194,7 +233,7 @@ GET  /api/v1/backtests/{id}/equity
 - **v0.2a (done)** — Strategy Lab: strategy registry, RSI/Donchian baselines,
   comparison engine, IS/OOS splits, walk-forward validation, experiment log.
 - **v0.2** — multi-market sync scheduler ✅ (v0.2b), more strategies ✅ (v0.2a),
-  persistent paper-trading service, React dashboard.
+  persistent paper-trading service ✅ (v0.2c), React dashboard.
 - **v0.3** — strategy ensembles, execution monitoring/alerting.
 - **Later** — ML research hooks, advisory LLM layer (OpenAI-compatible,
   e.g. FreeLLMAPI) strictly behind risk controls. Never autonomous order
@@ -203,6 +242,8 @@ GET  /api/v1/backtests/{id}/equity
 ## Known limitations
 
 - Single-asset, single long position; no leverage, shorting, or order types.
+- Paper trading is simulated (next-open fills, no latency/spread/impact);
+  paper profits do not predict real-market results. No real orders, ever.
 - Basic allocation-style risk limits, not a production risk system.
 - Backtests bounded to 5,000 candles per request.
 - Exchange geo-restrictions fail clearly; switch `DRIFTLINE_EXCHANGE`
