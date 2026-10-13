@@ -132,6 +132,37 @@ class PaperServiceConfig:
     error_threshold: int = MAX_CONSECUTIVE_ERRORS
 
 
+def service_config_from_settings(
+    settings: Any, *, history_limit: int = 500, max_new_candles: int = 48
+) -> PaperServiceConfig:
+    """Build the server-side policy snapshot from deployment configuration.
+
+    Sessions persist these values at creation; public API requests cannot
+    override them. Reads attributes only, so tests can pass a namespace.
+    """
+    return PaperServiceConfig(
+        history_limit=history_limit,
+        max_new_candles=max_new_candles,
+        exec_defaults=ExecConfig(
+            fee_rate=float(settings.paper_fee_rate),
+            slippage_rate=float(settings.paper_slippage_rate),
+            allocation=float(settings.paper_allocation),
+            min_quantity=float(settings.paper_min_quantity),
+            qty_precision=8,
+            price_precision=8,
+        ),
+        risk_defaults=PaperRiskConfig(
+            max_position_allocation=1.0,
+            max_risk_per_trade=0.02,
+            max_portfolio_drawdown=float(settings.paper_max_drawdown),
+            min_available_balance=float(settings.paper_min_balance),
+            max_stale_seconds=int(settings.paper_max_stale_seconds),
+            max_daily_loss_pct=float(settings.paper_max_daily_loss_pct),
+            max_concurrent_positions=1,
+        ),
+    )
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 

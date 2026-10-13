@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from driftline.api import schemas
 from driftline.api.deps import get_db, require_ops_token
+from driftline.core.config import get_settings
 from driftline.core.exceptions import ValidationError
 from driftline.paper import service, store
 from driftline.paper.models import PaperSessionRow
@@ -63,6 +64,7 @@ def create_paper_session(
             strategy_id=body.strategy_id,
             strategy_params=dict(body.strategy_params),
             initial_capital=body.initial_capital,
+            service_config=service.service_config_from_settings(get_settings()),
         )
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

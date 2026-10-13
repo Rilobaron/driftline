@@ -24,7 +24,11 @@ from driftline.core.logging import configure_logging, get_logger
 from driftline.market_data.clock import ensure_utc
 from driftline.paper import store
 from driftline.paper.models import PaperSessionRow, PaperSessionStatus
-from driftline.paper.service import PaperServiceConfig, evaluate_session
+from driftline.paper.service import (
+    PaperServiceConfig,
+    evaluate_session,
+    service_config_from_settings,
+)
 from driftline.persistence import database as db
 
 log = get_logger("paper.worker")
@@ -202,7 +206,8 @@ def main() -> int:
     worker = PaperWorker(
         factory,
         PaperWorkerConfig(poll_interval_seconds=settings.paper_interval_seconds),
-        service_config=PaperServiceConfig(
+        service_config=service_config_from_settings(
+            settings,
             history_limit=500,
             max_new_candles=settings.paper_max_new_candles,
         ),

@@ -152,7 +152,7 @@ Or everything with Compose: `docker compose up --build` (starts `db`, `api`, `wo
 | `DRIFTLINE_PAPER_MIN_QTY` | `0.00001` | Minimum paper order quantity |
 | `DRIFTLINE_PAPER_MAX_DAILY_LOSS` | `0.05` | Paper UTC-day loss limit |
 | `DRIFTLINE_PAPER_MAX_DRAWDOWN` | `0.20` | Paper peak-equity drawdown limit |
-| `DRIFTLINE_PAPER_MIN_BALANCE` | `10.0` | Paper minimum cash balance guard |
+| `DRIFTLINE_PAPER_MIN_BALANCE` | `0.0` | Paper minimum cash balance guard (reserve before sizing) |
 | `DRIFTLINE_PAPER_MAX_STALE` | `7200` | Max paper data age (s) |
 
 ## Running tests

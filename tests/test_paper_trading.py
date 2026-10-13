@@ -337,6 +337,21 @@ def test_daily_loss_limit_with_utc_reset(db_session: Session) -> None:
     assert rolled is not None and rolled.equity_day == day2.date().isoformat()
 
 
+def test_min_balance_guard_when_configured(db_session: Session) -> None:
+    candles = wave(200)
+    cfg = PaperServiceConfig(
+        max_new_candles=1000,
+        risk_defaults=PaperRiskConfig(min_available_balance=9900.0, max_daily_loss_pct=0.99),
+    )
+    row = running_session(db_session, candles, service_config=cfg)
+    report = service.evaluate_session(
+        db_session, row.id, now=now_after(candles), service_config=cfg
+    )
+    assert report.risk_rejections > 0
+    orders, _ = store.list_orders(db_session, row.id, limit=10000)
+    assert any("minimum balance" in (o.reason or "") for o in orders)
+
+
 def test_drawdown_blocks_entries_not_exits(db_session: Session) -> None:
     candles = wave(200)
     row = running_session(db_session, candles)
@@ -627,6 +642,19 @@ def test_paper_api_requires_token_when_configured(client: TestClient, monkeypatc
     assert client.get("/api/v1/paper/sessions").status_code == 200
 
 
+def test_paper_api_session_inherits_server_policy(
+    client: TestClient, db_session: Session, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(api_main.settings, "paper_max_daily_loss_pct", 0.01)
+    monkeypatch.setattr(api_main.settings, "paper_fee_rate", 0.002)
+    created = client.post("/api/v1/paper/sessions", json={})
+    assert created.status_code == 200, created.text
+    row = store.get_session_row(db_session, created.json()["id"])
+    assert row is not None
+    assert row.risk_config["max_daily_loss_pct"] == 0.01
+    assert row.exec_config["fee_rate"] == 0.002
+
+
 def test_paper_api_reports_engine_state(client: TestClient, db_session: Session) -> None:
     candles = wave(250)
     seed(db_session, candles)
@@ -641,6 +669,83 @@ def test_paper_api_reports_engine_state(client: TestClient, db_session: Session)
     assert len(equity) > 0
     events = client.get(f"/api/v1/paper/sessions/{sid}/events").json()
     assert events["total"] > 0
+
+
+# -- cross-worker coexistence -------------------------------------------------
+
+
+def test_market_and_paper_workers_run_together() -> None:
+    """Market sync inserts while paper evaluates: no corruption, no duplication."""
+    import time as _time
+    from datetime import UTC as _UTC
+
+    from driftline.market_data.scheduler import MarketScheduler, SchedulerConfig
+    from driftline.market_data.streams import MarketStream
+
+    factory, db = local_factory()
+    try:
+        start = datetime.now(_UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=200)
+        candles = make_trend_candles(n=200, start=start)
+
+        class MockProvider:
+            name = "mock"
+
+            def __init__(self, rows: list[Candle]) -> None:
+                self._rows = rows
+
+            def fetch_history(
+                self,
+                symbol: str,
+                timeframe: str,
+                *,
+                total_limit: int = 8760,
+                since_ms: int | None = None,
+                page_limit: int = 1000,
+                max_retries: int = 5,
+            ) -> list[Candle]:
+                out = [
+                    c
+                    for c in self._rows
+                    if since_ms is None or int(c.ts.timestamp() * 1000) >= since_ms
+                ]
+                return out[:total_limit]
+
+            def fetch_ohlcv(
+                self,
+                symbol: str,
+                timeframe: str,
+                *,
+                since_ms: int | None = None,
+                limit: int = 1000,
+            ) -> list[Candle]:
+                return self.fetch_history(symbol, timeframe, total_limit=limit, since_ms=since_ms)
+
+        sched = MarketScheduler(
+            factory,
+            lambda ex: MockProvider(candles),
+            SchedulerConfig(poll_interval_seconds=5),
+            ensure_streams=[MarketStream("mock", "BTC/USDT", "1h")],
+        )
+        sched.run_once(now=datetime.now(_UTC))  # bootstrap first, deterministically
+        db.expire_all()
+        assert repo.count_candles(db, "BTC/USDT", "1h", exchange="mock") == 200
+
+        row = service.create_session(db, exchange="mock", symbol="BTC/USDT")
+        service.start_session(db, row.id)
+        paper = PaperWorker(factory, PaperWorkerConfig(poll_interval_seconds=1))
+        sched.start()
+        paper.start()
+        _time.sleep(6)
+        sched.stop()
+        paper.stop()
+        db.expire_all()
+        assert repo.count_candles(db, "BTC/USDT", "1h", exchange="mock") == 200
+        cur = store.get_session_row(db, row.id)
+        assert cur is not None and cur.last_evaluated_ts is not None
+        assert cur.status == PaperSessionStatus.RUNNING  # no contention-driven ERROR
+        assert cur.consecutive_errors == 0
+    finally:
+        db.close()
 
 
 # -- postgres integration (skipped when unavailable) --------------------------

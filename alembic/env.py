@@ -12,6 +12,9 @@ from alembic import context
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+# Import all model modules so target_metadata covers every table
+# (paper tables register on the shared Base only when imported).
+from driftline.paper import models as _paper_models  # noqa: F401
 from driftline.persistence.models import Base
 
 config = context.config

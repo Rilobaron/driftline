@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     paper_min_quantity: float = Field(default=0.00001, alias="DRIFTLINE_PAPER_MIN_QTY")
     paper_max_daily_loss_pct: float = Field(default=0.05, alias="DRIFTLINE_PAPER_MAX_DAILY_LOSS")
     paper_max_drawdown: float = Field(default=0.20, alias="DRIFTLINE_PAPER_MAX_DRAWDOWN")
-    paper_min_balance: float = Field(default=10.0, alias="DRIFTLINE_PAPER_MIN_BALANCE")
+    paper_min_balance: float = Field(default=0.0, alias="DRIFTLINE_PAPER_MIN_BALANCE")
     paper_max_stale_seconds: int = Field(default=7200, alias="DRIFTLINE_PAPER_MAX_STALE")
 
 
