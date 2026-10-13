@@ -288,3 +288,146 @@ class SyncHistoryOut(BaseModel):
     limit: int
     offset: int
     runs: list[SyncRunOut] = Field(default_factory=list)
+
+
+# --- v0.2c paper trading (simulated funds only) ---
+
+
+class PaperSessionCreate(BaseModel):
+    model_config = {"extra": "forbid"}  # risk policy is server-side; never client-settable
+
+    exchange: str = Field(default="binance", max_length=32)
+    symbol: str = Field(default="BTC/USDT", max_length=32)
+    timeframe: str = Field(default="1h", max_length=16)
+    strategy_id: str = Field(default="ema_crossover", max_length=64)
+    strategy_params: dict[str, Any] = Field(default_factory=dict)
+    initial_capital: float = Field(default=10_000.0, gt=0, le=100_000_000)
+
+
+class PaperSessionOut(BaseModel):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+    status: str
+    exchange: str
+    symbol: str
+    timeframe: str
+    strategy_id: str
+    strategy_version: str = "1.0.0"
+    strategy_params: dict[str, Any] = Field(default_factory=dict)
+    initial_capital: str
+    kill_switch: bool = False
+    last_evaluated_ts: datetime | None = None
+    last_execution_at: datetime | None = None
+    consecutive_errors: int = 0
+    last_error: str | None = None
+    num_orders: int = 0
+    num_fills: int = 0
+    num_trades: int = 0
+    risk_rejections: int = 0
+
+
+class PaperSessionListOut(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    sessions: list[PaperSessionOut] = Field(default_factory=list)
+
+
+class PaperPortfolioOut(BaseModel):
+    session_id: str
+    status: str
+    initial_capital: str
+    cash: str
+    reserved_cash: str
+    position_qty: str
+    avg_entry_price: str
+    realized_pnl: str
+    unrealized_pnl: str
+    total_equity: str
+    total_fees: str
+    peak_equity: str
+    num_orders: int = 0
+    num_fills: int = 0
+    num_trades: int = 0
+    risk_rejections: int = 0
+    kill_switch: bool = False
+    last_evaluated_ts: datetime | None = None
+    last_execution_at: datetime | None = None
+    last_error: str | None = None
+
+
+class PaperOrderOut(BaseModel):
+    id: int
+    session_id: str
+    idempotency_key: str
+    side: str
+    signal_ts: datetime
+    status: str
+    qty: str
+    created_at: datetime
+    decided_at: datetime
+    reason: str | None = None
+
+
+class PaperOrderListOut(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    orders: list[PaperOrderOut] = Field(default_factory=list)
+
+
+class PaperFillOut(BaseModel):
+    id: int
+    session_id: str
+    order_id: int
+    ts: datetime
+    price: str
+    qty: str
+    fee: str
+    slippage_rate: str
+    assumptions: dict[str, Any] = Field(default_factory=dict)
+
+
+class PaperTradeOut(BaseModel):
+    id: int
+    session_id: str
+    entry_time: datetime
+    exit_time: datetime
+    entry_price: str
+    exit_price: str
+    qty: str
+    entry_fee: str
+    exit_fee: str
+    realized_pnl: str
+    return_pct: str
+
+
+class PaperTradeListOut(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    trades: list[PaperTradeOut] = Field(default_factory=list)
+
+
+class PaperEquityPointOut(BaseModel):
+    ts: datetime
+    equity: str
+    cash: str
+    position_qty: str
+    close: str
+
+
+class PaperEventOut(BaseModel):
+    id: int
+    session_id: str
+    ts: datetime
+    kind: str
+    detail: str = ""
+
+
+class PaperEventListOut(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    events: list[PaperEventOut] = Field(default_factory=list)

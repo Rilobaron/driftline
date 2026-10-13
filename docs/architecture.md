@@ -1,4 +1,4 @@
-# Driftline architecture (v0.1 + v0.2a Strategy Lab + v0.2b Market Automation)
+# Driftline architecture (v0.1 + v0.2a Strategy Lab + v0.2b Market Automation + v0.2c Paper Trading)
 
 ## Data flow
 
@@ -21,6 +21,16 @@ flowchart LR
     LAB --> API
     RISK[risk manager] -. guards .-> BT
     PF[virtual portfolio] -. accounting .-> BT
+    subgraph paper["Paper trading (v0.2c, simulated)"]
+        DB --> SES[paper sessions: cursor + Decimal portfolio]
+        SES --> PSIG[strategy signals @ close S]
+        PSIG --> PRISK[mandatory paper risk policy]
+        PRISK --> PORD[pending orders: idempotent keys]
+        PORD -->|fill @ open S+1| PFILL[simulated fills + trades]
+        PFILL --> SES
+        PW[paper worker: leased executor] -. evaluates .-> SES
+        SES --> PAPI[FastAPI v1: /paper/*]
+    end
 ```
 
 ## Anti-lookahead rule
@@ -42,6 +52,20 @@ fabricated into an exit fill.
   into dataset fingerprints, so research snapshots are reproducible and
   exchange-scoped. See [market-automation](market-automation.md) and
   [data-quality](data-quality.md).
+
+## Paper trading (v0.2c, simulated funds only)
+
+- One dedicated paper worker evaluates `RUNNING` sessions; the API never runs
+  trading loops. Per-session DB leases guarantee a single executor.
+- Signals on completed candle `S` fill at completed candle `S+1`'s open —
+  the same timing as the backtester (see [execution-model](execution-model.md)).
+- Every order passes the mandatory paper risk policy (daily-loss UTC reset,
+  drawdown, single position, stale data, persistent kill switch); risk
+  parameters are server-side and never client-settable.
+- Portfolio state is Decimal-precise and persistent (`paper_sessions` plus
+  `paper_orders/fills/trades/snapshots/events`); evaluation ticks are atomic
+  with idempotent order keys, so restarts never duplicate execution.
+  See [paper-trading](paper-trading.md).
 
 ## Strategy Lab (v0.2a)
 
